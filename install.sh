@@ -48,7 +48,7 @@ echo "Benutzer 'ray' hat Sudo-Rechte"
 echo "Partitioniere Festplatte (SSD)"
 # Formatieren der Festplatte (nehmen wir an, die Festplatte ist /dev/nvme0n1p1, oder stanrd /dev/sda ersetze dies ggf.)
 parted /dev/sda mklabel gpt
-parted /dev/sdamkpart primary ext4 1MiB 100%
+parted /dev/sda mkpart primary ext4 1MiB 100%
 cryptsetup luksFormat /dev/sda1
 cryptsetup luksOpen /dev/sda1 cryptroot
 mkfs.ext4 /dev/mapper/cryptroot
