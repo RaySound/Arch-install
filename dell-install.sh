@@ -14,14 +14,11 @@ read encrypt_choice
 
 # Schritt 3: Partitionierung und Dateisystem
 if [ "$encrypt_choice" == "y" ]; then
-    # LUKS Verschlüsselung einrichten
     echo "Einrichten von LUKS Verschlüsselung..."
     cryptsetup luksFormat $disk
     cryptsetup open $disk crypt
     disk="/dev/mapper/crypt"
 fi
-
-# Standard partitionieren mit ext4
 echo "Partitioniere die Festplatte..."
 parted $disk -- mklabel gpt
 parted $disk -- mkpart primary ext4 0% 100%
@@ -39,13 +36,11 @@ arch-chroot /mnt locale-gen
 echo "LANG=de_DE.UTF-8" > /mnt/etc/locale.conf
 echo "KEYMAP=de-latin1" > /mnt/etc/vconsole.conf
 arch-chroot /mnt ln -sf /usr/share/zoneinfo/Europe/Berlin /etc/localtime
-
-# Schritt 7: Hostname und Benutzer erstellen
 echo -n "Bitte gib einen Hostnamen für dein System ein: "
 read hostname
 echo "$hostname" > /mnt/etc/hostname
 
-# Benutzer erstellen
+# Schritt 7: Benutzer erstellen
 echo -n "Bitte gib einen Benutzernamen ein: "
 read username
 arch-chroot /mnt useradd -m -G wheel -s /bin/bash $username
@@ -66,29 +61,23 @@ arch-chroot /mnt systemctl enable NetworkManager
 arch-chroot /mnt pacman -S gdm gnome gnome-tweaks gnome-shell-extensions
 
 # Schritt 11: Treiber für die Hardware optimieren
-# Blacklist unnötiger Treiber für Dell Latitude E7440
-echo "blacklist nouveau" >> /mnt/etc/modprobe.d/blacklist.conf  # Nvidia-Grafikkarten
-echo "blacklist amdgpu" >> /mnt/etc/modprobe.d/blacklist.conf  # AMD-Grafikkarten
-echo "blacklist radeon" >> /mnt/etc/modprobe.d/blacklist.conf  # AMD-Grafikkarten
-echo "blacklist ath9k" >> /mnt/etc/modprobe.d/blacklist.conf   # Atheros-WLAN (falls nicht benötigt)
-echo "blacklist b43" >> /mnt/etc/modprobe.d/blacklist.conf     # Broadcom-WLAN (falls nicht benötigt)
-echo "blacklist b43legacy" >> /mnt/etc/modprobe.d/blacklist.conf  # Alte Broadcom-WLAN-Karten
-echo "blacklist rtl8192cu" >> /mnt/etc/modprobe.d/blacklist.conf  # Realtek-WLAN (falls nicht benötigt)
-echo "blacklist btusb" >> /mnt/etc/modprobe.d/blacklist.conf   # Bluetooth-Adapter (falls nicht benötigt)
-echo "blacklist r8169" >> /mnt/etc/modprobe.d/blacklist.conf   # Realtek-Ethernet (falls nicht benötigt)
-echo "blacklist tg3" >> /mnt/etc/modprobe.d/blacklist.conf     # Broadcom-Ethernet (falls nicht benötigt)
-echo "blacklist usb_storage" >> /mnt/etc/modprobe.d/blacklist.conf  # USB-Speicher (falls nicht benötigt)
-echo "blacklist hid_logitech" >> /mnt/etc/modprobe.d/blacklist.conf  # Logitech-Peripheriegeräte (falls nicht benötigt)
-echo "blacklist usbhid" >> /mnt/etc/modprobe.d/blacklist.conf   # USB-HID (falls nicht benötigt)
+echo "blacklist nouveau" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist amdgpu" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist radeon" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist ath9k" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist b43" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist b43legacy" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist rtl8192cu" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist btusb" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist r8169" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist tg3" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist usb_storage" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist hid_logitech" >> /mnt/etc/modprobe.d/blacklist.conf
+echo "blacklist usbhid" >> /mnt/etc/modprobe.d/blacklist.conf
 
 # Schritt 12: Systemoptimierungen
-# Swappiness anpassen (Wert für Swap-Nutzung)
 echo "vm.swappiness=10" > /mnt/etc/sysctl.d/99-swappiness.conf
-
-# CPU Governor auf maximale Leistung setzen
 echo "performance" > /mnt/sys/class/drm/card0/device/power_profile
-
-# SSD Optimierung (fstrim)
 arch-chroot /mnt systemctl enable fstrim.timer
 
 # Schritt 13: NTP aktivieren
@@ -99,7 +88,6 @@ arch-chroot /mnt pacman -S apparmor
 arch-chroot /mnt systemctl enable apparmor
 
 # Schritt 15: Blacklist PipeWire
-# Wenn PulseAudio installiert werden soll, PipeWire nicht aktivieren
 # arch-chroot /mnt systemctl enable pipewire.service
 
 # Schritt 16: Abschluss
