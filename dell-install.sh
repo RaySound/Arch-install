@@ -3,7 +3,7 @@
 # Schritt 1: Vorbereitung
 clear
 echo -e "\nArch Linux Installation Script für deinen Dell Latitude E7440"
-echo -e "Automatische Installation mit minimaler Softwareauswahl.\n"
+echo -e "Automatische Installation mit minimaler Softwareauswahl Gnome und Cosmicx.\n"
 sleep 2
 
 # Schritt 2: Benutzereingabe - Festplatte auswählen
@@ -29,7 +29,7 @@ mkfs.ext4 ${disk}1
 
 # Schritt 4: Mounten und Systeminstallation
 mount ${disk}1 /mnt
-pacstrap /mnt base linux linux-firmware nano sudo grub networkmanager
+pacstrap /mnt base linux linux-firmware nano sudo grub networkmanager pipewire pipewire-pulse
 
 # Schritt 5: System anpassen (fstab, locale, etc.)
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -63,10 +63,25 @@ arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 arch-chroot /mnt systemctl enable NetworkManager
 
 # Schritt 10: Zusätzliche Software installieren
-arch-chroot /mnt pacman -S paru
-arch-chroot /mnt paru -S --noconfirm vlc thunderbird btop fastfetch firefox-de discord gnome-disk-utility spectacle zulip zapzap
+arch-chroot /mnt pacman -S gdm gnome gnome-tweaks gnome-shell-extensions
 
-# Schritt 11: Systemoptimierungen
+# Schritt 11: Treiber für die Hardware optimieren
+# Blacklist unnötiger Treiber für Dell Latitude E7440
+echo "blacklist nouveau" >> /mnt/etc/modprobe.d/blacklist.conf  # Nvidia-Grafikkarten
+echo "blacklist amdgpu" >> /mnt/etc/modprobe.d/blacklist.conf  # AMD-Grafikkarten
+echo "blacklist radeon" >> /mnt/etc/modprobe.d/blacklist.conf  # AMD-Grafikkarten
+echo "blacklist ath9k" >> /mnt/etc/modprobe.d/blacklist.conf   # Atheros-WLAN (falls nicht benötigt)
+echo "blacklist b43" >> /mnt/etc/modprobe.d/blacklist.conf     # Broadcom-WLAN (falls nicht benötigt)
+echo "blacklist b43legacy" >> /mnt/etc/modprobe.d/blacklist.conf  # Alte Broadcom-WLAN-Karten
+echo "blacklist rtl8192cu" >> /mnt/etc/modprobe.d/blacklist.conf  # Realtek-WLAN (falls nicht benötigt)
+echo "blacklist btusb" >> /mnt/etc/modprobe.d/blacklist.conf   # Bluetooth-Adapter (falls nicht benötigt)
+echo "blacklist r8169" >> /mnt/etc/modprobe.d/blacklist.conf   # Realtek-Ethernet (falls nicht benötigt)
+echo "blacklist tg3" >> /mnt/etc/modprobe.d/blacklist.conf     # Broadcom-Ethernet (falls nicht benötigt)
+echo "blacklist usb_storage" >> /mnt/etc/modprobe.d/blacklist.conf  # USB-Speicher (falls nicht benötigt)
+echo "blacklist hid_logitech" >> /mnt/etc/modprobe.d/blacklist.conf  # Logitech-Peripheriegeräte (falls nicht benötigt)
+echo "blacklist usbhid" >> /mnt/etc/modprobe.d/blacklist.conf   # USB-HID (falls nicht benötigt)
+
+# Schritt 12: Systemoptimierungen
 # Swappiness anpassen (Wert für Swap-Nutzung)
 echo "vm.swappiness=10" > /mnt/etc/sysctl.d/99-swappiness.conf
 
@@ -76,12 +91,16 @@ echo "performance" > /mnt/sys/class/drm/card0/device/power_profile
 # SSD Optimierung (fstrim)
 arch-chroot /mnt systemctl enable fstrim.timer
 
-# Schritt 12: NTP aktivieren
+# Schritt 13: NTP aktivieren
 arch-chroot /mnt systemctl enable systemd-timesyncd
 
-# Schritt 13: AppArmor installieren und aktivieren
+# Schritt 14: AppArmor installieren und aktivieren
 arch-chroot /mnt pacman -S apparmor
 arch-chroot /mnt systemctl enable apparmor
 
-# Schritt 14: Abschluss
+# Schritt 15: Blacklist PipeWire
+# Wenn PulseAudio installiert werden soll, PipeWire nicht aktivieren
+# arch-chroot /mnt systemctl enable pipewire.service
+
+# Schritt 16: Abschluss
 echo -e "\nInstallation abgeschlossen. Du kannst das System nun neu starten."
