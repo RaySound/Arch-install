@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Arch Linux Installationsskript mit Hardware-Erkennung, KI-Assistent, hybrider Unterstützung und Desktop-Auswahl
+# Arch Linux Installationsskript mit Hardware-Erkennung, KI-Assistent, hybrider Unterstützung, Desktop-Auswahl, und Tool-Auswahl
 
 # --- Funktionen ---
 setup_essentials() {
@@ -28,14 +28,17 @@ setup_locale() {
 
 setup_network() {
     echo "Installiere Netzwerkdienste..."
-    pacstrap /mnt networkmanager
+    pacstrap /mnt networkmanager dhcpcd
     arch-chroot /mnt systemctl enable NetworkManager
 }
 
 setup_bootloader() {
     echo "Installiere Bootloader..."
-    pacstrap /mnt grub
-    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+    pacstrap /mnt grub efibootmgr dosfstools mtools
+    mkdir -p /mnt/boot/efi
+    mkfs.fat -F32 ${disk}1
+    mount ${disk}1 /mnt/boot/efi
+    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 }
 
@@ -98,10 +101,10 @@ configure_local_ai() {
     read -p "Deine Wahl: " install_ai
     if [[ "$install_ai" == "y" ]]; then
         echo "Richte GPT4All ein..."
-        arch-chroot /mnt pacman -S --noconfirm python python-pip
-        arch-chroot /mnt pip install torch transformers langchain
+        pacstrap /mnt python python-pip
+        arch-chroot /mnt pip install --no-cache-dir torch transformers langchain
         arch-chroot /mnt mkdir -p /opt/local-ai
-        arch-chroot /mnt wget -O /opt/local-ai/gpt4all.bin "https://gpt4all.io/models/gpt4all-lora-quantized.bin"
+        arch-chroot /mnt wget -O /opt/local-ai/gpt4all.bin "https://gpt4all.io/models/gpt4all-lora-quantized.bin" || { echo "Download fehlgeschlagen"; exit 1; }
 
         cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/local-ai.service
 [Unit]
@@ -204,12 +207,31 @@ setup_encryption() {
     read -p "Deine Wahl: " encrypt_choice
     if [[ "$encrypt_choice" == "y" ]]; then
         echo "Verschlüssele die Festplatte..."
-        cryptsetup -y -v luksFormat ${disk}1
-        cryptsetup open ${disk}1 my_encrypted_drive
+        parted $disk mklabel gpt
+        parted $disk mkpart primary fat32 1MiB 512MiB
+        parted $disk set 1 esp on
+        parted $disk mkpart primary ext4 512MiB 100%
+        mkfs.fat -F32 ${disk}1
+        echo -n "Gib dein LUKS-Passwort ein: "
+        read -s LUKS_PASS
+        echo
+        echo -n "Bestätige dein LUKS-Passwort: "
+        read -s LUKS_PASS_CONFIRM
+        echo
+        if [[ "$LUKS_PASS" != "$LUKS_PASS_CONFIRM" ]]; then
+            echo "Passwörter stimmen nicht überein. Abbruch."
+            exit 1
+        fi
+        echo $LUKS_PASS | cryptsetup -y -v luksFormat ${disk}2
+        echo $LUKS_PASS | cryptsetup open ${disk}2 my_encrypted_drive
         mkfs.ext4 /dev/mapper/my_encrypted_drive
         mount /dev/mapper/my_encrypted_drive /mnt
+        mkdir -p /mnt/boot
+        mount ${disk}1 /mnt/boot
     else
         echo "Keine Verschlüsselung."
+        parted $disk mklabel gpt
+        parted $disk mkpart primary ext4 1MiB 100%
         mkfs.ext4 ${disk}1
         mount ${disk}1 /mnt
     fi
@@ -221,7 +243,177 @@ setup_user_profile() {
     arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$username"
     echo "Setze ein Passwort für $username:"
     arch-chroot /mnt passwd "$username"
-    arch-chroot /mnt echo "$username ALL=(ALL) ALL" >> /etc/sudoers
+    echo "$username ALL=(ALL) ALL" | arch-chroot /mnt tee -a /etc/sudoers
+}
+
+select_tools() {
+    echo "Wähle die Tools, die du installieren möchtest. (y/n für jede Option)"
+    declare -A tools
+    tools[vim]="Vim Editor"
+    tools[nano]="Nano Editor"
+    tools[htop]="Htop - Systemüberwachung"
+    tools[curl]="Curl - HTTP Client"
+    tools[wget]="Wget - Dateiherunterlader"
+    tools[neofetch]="Neofetch - System-Info Anzeige"
+    tools[zsh]="Zsh - Shell"
+    tools[fish]="Fish - Benutzerfreundliche Shell"
+    tools[bash]="Bash - Standard Shell"
+    tools[screen]="Screen - Terminal Multiplexer"
+    tools[tmux]="Tmux - Terminal Multiplexer"
+    tools[rsync]="Rsync - Dateisynchronisation"
+    tools[tree]="Tree - Verzeichnisstruktur anzeigen"
+    tools[lf]="Lf - Terminal Filemanager"
+    tools[ffmpeg]="FFmpeg - Multimediatools"
+    tools[vlc]="VLC - Mediaplayer"
+    tools[gimp]="GIMP - Bildbearbeitung"
+    tools[inkscape]="Inkscape - Vektorgrafik-Editor"
+    tools[blender]="Blender - 3D-Modellierung"
+    tools[kdenlive]="Kdenlive - Videobearbeitung"
+    tools[obs-studio]="OBS Studio - Aufnahme- und Streaming-Software"
+    tools[audacity]="Audacity - Audiobearbeitung"
+    tools[spotify]="Spotify - Musik Streaming"
+    tools[plex-media-server]="Plex Media Server - Medien-Server"
+    tools[discord]="Discord - Kommunikations-App"
+    tools[slack]="Slack - Team-Kommunikation"
+    tools[thunderbird]="Thunderbird - E-Mail-Client"
+    tools[chromium]="Chromium - Webbrowser"
+    tools[firefox]="Firefox - Webbrowser"
+    tools[vivaldi]="Vivaldi - Webbrowser"
+    tools[qemu]="QEMU - Virtualisierung"
+    tools[virtualbox]="VirtualBox - Virtualisierung"
+    tools[docker]="Docker - Containerisierung"
+    tools[podman]="Podman - Containerisierung"
+    tools[wine]="Wine - Windows-Programme auf Linux"
+    tools[lutris]="Lutris - Spielmanagement"
+    tools[steam]="Steam - Spiel-Client"
+    tools[playonlinux]="PlayOnLinux - Spiele und Windows-Anwendungen"
+    tools[wine-gecko]="Wine Gecko - Webrendering für Wine"
+    tools[wine-mono]="Wine Mono - .NET für Wine"
+    tools[libreoffice]="LibreOffice - Office-Suite"
+    tools[evince]="Evince - PDF-Viewer"
+    tools[okular]="Okular - Dokumentenbetrachter"
+    tools[calibre]="Calibre - E-Book Management"
+    tools[syncthing]="Syncthing - Dateisynchronisation"
+    tools[nextcloud-client]="Nextcloud Client - Cloud-Synchronisation"
+    tools[dropbox]="Dropbox - Cloud-Synchronisation"
+    tools[megasync]="MegaSync - Cloud-Synchronisation"
+    tools[rclone]="Rclone - Cloud-Synchronisation"
+    tools[rar]="RAR - Archivierung"
+    tools[unrar]="UnRAR - Entpacken von RAR-Archiven"
+    tools[zip]="Zip - Archivierung"
+    tools[7zip]="7-Zip - Archivierung"
+    tools[xarchiver]="Xarchiver - Archivmanager"
+    tools[p7zip]="P7zip - 7-Zip für Linux"
+    tools[unzip]="Unzip - Entpacken von ZIP-Archiven"
+    tools[filezilla]="FileZilla - FTP-Client"
+    tools[ssh]="SSH - Secure Shell"
+    tools[nmap]="Nmap - Netzwerkscanner"
+    tools[netcat]="Netcat - Netzwerk-Tool"
+    tools[tcpdump]="Tcpdump - Netzwerkverkehr Aufzeichnen"
+    tools[ufw]="UFW - Firewall"
+    tools[firewalld]="Firewalld - dynamische Firewall"
+    tools[fail2ban]="Fail2ban - Intrusion Prevention"
+    tools[iproute2]="Iproute2 - Netzwerkmanagement"
+    tools[wpa_supplicant]="WPA Supplicant - WLAN-Verbindung"
+    tools[nmcli]="Nmcli - NetworkManager Command Line Interface"
+    tools[iwctl]="IWD - Wireless Daemon"
+    tools[bluez]="BlueZ - Bluetooth-Stack"
+    tools[blueman]="Blueman - Bluetooth-Manager"
+    tools[aircrack-ng]="Aircrack-ng - WLAN-Sicherheitswerkzeuge"
+    tools[iw]="Iw - WLAN-Tool"
+    tools[hostnamectl]="Hostnamectl - Hostname Verwaltung"
+    tools[yay]="Yay - Paketmanager"
+    tools[paru]="Paru - Paketmanager"
+    tools[flatpak]="Flatpak - Anwendungspaketierung"
+    tools[snapd]="Snapd - Anwendungspaketierung"
+    tools[zfsutils-linux]="ZFS - Dateisystem"
+    tools[btrfs-progs]="Btrfs - Dateisystem"
+    tools[lvm2]="LVM - Logical Volume Manager"
+    tools[cryptsetup]="Cryptsetup - Verschlüsselungswerkzeuge"
+    tools[gparted]="GParted - Partitionierungswerkzeug"
+    tools[gdisk]="Gdisk - Partitionierungswerkzeug"
+    tools[dosfstools]="Dosfstools - FAT Dateisystem Tools"
+    tools[lsscsi]="Lsscsi - SCSI Geräte auflisten"
+    tools[smartmontools]="Smartmontools - Festplatten-Überwachung"
+    tools[xfsprogs]="Xfsprogs - XFS Dateisystem Tools"
+    tools[ntfs-3g]="NTFS-3G - NTFS Unterstützung"
+    tools[f2fs-tools]="F2FS-Tools - Flash-Friendly File System Tools"
+    tools[btop]="Btop - Systemüberwachung"
+    tools[glances]="Glances - Systemüberwachung"
+    tools[atop]="Atop - Systemüberwachung"
+    tools[iostat]="Iostat - I/O-Statistik"
+    tools[stress]="Stress - Systembelastung"
+    tools[sysstat]="Sysstat - System Performance Tools"
+    tools[sar]="SAR - System Activity Reporter"
+    tools[nmon]="Nmon - Leistungsüberwachungswerkzeug"
+    tools[uptime]="Uptime - Systemlaufzeit"
+    tools[dstat]="Dstat - Systemstatistik"
+    tools[time]="Time - Kommandozeiterfassung"
+    tools[watch]="Watch - Wiederholte Ausführung von Kommandos"
+    tools[logger]="Logger - Log-Nachrichten erstellen"
+    tools[strace]="Strace - Systemaufrufe verfolgen"
+    tools[ltrace]="Ltrace - Bibliotheksaufrufe verfolgen"
+    tools[perf]="Perf - Leistungsanalyse"
+    tools[gdb]="GDB - Debugger"
+    tools[valgrind]="Valgrind - Speicherfehler-Detektor"
+    tools[clang]="Clang - Compiler"
+    tools[make]="Make - Build-Automatisierung"
+    tools[gcc]="GCC - GNU Compiler Collection"
+    tools[cmake]="CMake - Build-System"
+    tools[build-essential]="Build-Essential - Build-Tools"
+    tools[autoconf]="Autoconf - Build-Konfiguration"
+    tools[automake]="Automake - Makefile-Generator"
+    tools[pkg-config]="Pkg-config - Bibliothekskonfiguration"
+    tools[python-pip]="Pip - Python Paketmanager"
+    tools[pipx]="Pipx - Python Paketmanager"
+    tools[nodejs]="Node.js - JavaScript Laufzeitumgebung"
+    tools[npm]="NPM - Node Paketmanager"
+    tools[yarn]="Yarn - Paketmanager für JavaScript"
+    tools[ruby]="Ruby - Programmiersprache"
+    tools[go]="Go - Programmiersprache"
+    tools[rust]="Rust - Programmiersprache"
+    tools[jdk]="JDK - Java Development Kit"
+    tools[maven]="Maven - Java Build-Automatisierung"
+    tools[gradle]="Gradle - Build-Automatisierung"
+    tools[perl]="Perl - Programmiersprache"
+    tools[php]="PHP - Web-Programmiersprache"
+    tools[mysql]="MySQL - Datenbank"
+    tools[postgresql]="PostgreSQL - Datenbank"
+    tools[mongodb]="MongoDB - NoSQL Datenbank"
+    tools[redis]="Redis - Schlüssel-Wert-Datenbank"
+    tools[nginx]="Nginx - Webserver"
+    tools[apache]="Apache - Webserver"
+    tools[lighttpd]="Lighttpd - Leichtgewichtiger Webserver"
+    tools[haproxy]="HAProxy - Load Balancer"
+    tools[squid]="Squid - Web-Proxy"
+    tools[unicorn]="Unicorn - Ruby Webserver"
+    tools[rails]="Rails - Ruby Web-Framework"
+    tools[fastfetch]="Fastfetch - System-Info Anzeige"
+
+    selected_packages=""
+    for pkg in "${!tools[@]}"; do
+        read -p "Installiere ${tools[$pkg]}? (y/n): " choice
+        if [[ "$choice" == "y" ]]; then
+            selected_packages+=" $pkg"
+        fi
+    done
+
+    if [ -n "$selected_packages" ]; then
+        pacstrap /mnt $selected_packages || {
+            echo "Fehler beim Installieren der Pakete. Bitte überprüfen Sie Ihre Internetverbindung oder die Paketnamen."
+            exit 1
+        }
+    else
+        echo "Keine zusätzlichen Tools ausgewählt."
+    fi
+}
+    done
+
+    if [ -n "$selected_packages" ]; then
+        pacstrap /mnt $selected_packages
+    else
+        echo "Keine zusätzlichen Tools ausgewählt."
+    fi
 }
 
 # --- Hauptskript ---
@@ -229,8 +421,6 @@ echo "Starte Arch Linux Installation..."
 
 # Partitionierung und Formatierung
 read -p "Auf welcher Festplatte soll Arch installiert werden? (z.B. /dev/sda): " disk
-parted $disk mklabel gpt
-parted $disk mkpart primary ext4 1MiB 100%
 setup_encryption
 
 setup_essentials
@@ -242,6 +432,7 @@ setup_bootloader
 setup_drivers
 configure_local_ai
 setup_desktop
+select_tools
 setup_user_profile
 
 echo "Arch Linux Installation abgeschlossen! Du kannst jetzt neustarten."
