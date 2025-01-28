@@ -13,6 +13,7 @@ setup_drivers() {
     echo "Wähle deinen CPU-Hersteller:"
     echo "1) AMD"
     echo "2) Intel"
+    echo "3) Ich weiß es nicht (installiere alle CPU-Treiber)"
     read -p "Deine Wahl: " cpu_choice
 
     case $cpu_choice in
@@ -21,6 +22,9 @@ setup_drivers() {
             ;;
         2)
             pacstrap /mnt intel-ucode
+            ;;
+        3)
+            pacstrap /mnt amd-ucode intel-ucode
             ;;
         *)
             echo "Ungültige Auswahl. Abbruch."
@@ -32,6 +36,7 @@ setup_drivers() {
     echo "1) AMD"
     echo "2) Nvidia"
     echo "3) Intel"
+    echo "4) Ich weiß es nicht (installiere alle GPU-Treiber)"
     read -p "Deine Wahl: " gpu_choice
 
     case $gpu_choice in
@@ -43,6 +48,9 @@ setup_drivers() {
             ;;
         3)
             pacstrap /mnt mesa vulkan-intel
+            ;;
+        4)
+            pacstrap /mnt mesa vulkan-radeon vulkan-intel nvidia nvidia-utils
             ;;
         *)
             echo "Ungültige Auswahl. Abbruch."
@@ -96,6 +104,18 @@ setup_hybrid_ai() {
     fi
 }
 
+setup_user_profile() {
+    echo "Erstelle Benutzerprofil..."
+    read -p "Gib den gewünschten Benutzernamen ein: " username
+    arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$username"
+    echo "Setze ein Passwort für $username:"
+    arch-chroot /mnt passwd "$username"
+
+    echo "Aktiviere sudo für $username..."
+    arch-chroot /mnt pacman -S --noconfirm sudo
+    echo "$username ALL=(ALL) ALL" | arch-chroot /mnt tee -a /etc/sudoers
+}
+
 # --- Hauptskript ---
 echo "Starte Arch Linux Installation..."
 
@@ -123,6 +143,9 @@ if [[ "$install_ai" == "y" ]]; then
 else
     echo "KI-Installation übersprungen."
 fi
+
+# Benutzerprofil erstellen
+setup_user_profile
 
 # Abschluss
 echo "Arch Linux Installation abgeschlossen! Du kannst jetzt neustarten."
