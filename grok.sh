@@ -42,6 +42,69 @@ setup_bootloader() {
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 }
 
+# --- Benutzerausrichtung ---
+
+setup_gaming() {
+    echo "Aktiviere multilib für Gaming-Unterstützung..."
+    sed -i '/\[multilib\]/,/Include/s/^#//' /mnt/etc/pacman.conf
+    arch-chroot /mnt pacman -Syu
+
+    echo "Installiere Gaming-Pakete..."
+    pacstrap /mnt lutris steam wine wine-gecko wine-mono
+
+    echo "Installiere ProtonQT über Flatpak..."
+    arch-chroot /mnt pacman -S --noconfirm flatpak
+    arch-chroot /mnt flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    arch-chroot /mnt flatpak install -y flathub org.protonvpn.protonvpn-gui
+}
+
+setup_office() {
+    echo "Wähle eine Office-Umgebung:"
+    echo "1) LibreOffice"
+    echo "2) Calligra (KDE Suite)"
+    echo "3) Gnumeric und AbiWord (Leichtgewicht)"
+    read -p "Deine Wahl: " office_choice
+
+    case $office_choice in
+        1)
+            pacstrap /mnt libreoffice libreoffice-fresh
+            ;;
+        2)
+            pacstrap /mnt calligra
+            ;;
+        3)
+            pacstrap /mnt gnumeric abiword
+            ;;
+        *)
+            echo "Ungültige Auswahl. Keine Office-Umgebung wird installiert."
+            ;;
+    esac
+}
+
+select_usage_profile() {
+    echo "Wähle deinen Nutzungsprofil:"
+    echo "1) Gaming"
+    echo "2) Office"
+    echo "3) Normal (Keine zusätzliche Software)"
+    read -p "Deine Wahl: " profile_choice
+
+    case $profile_choice in
+        1)
+            setup_gaming
+            ;;
+        2)
+            setup_office
+            ;;
+        3)
+            echo "Keine zusätzliche Software für den Normal-Modus wird installiert."
+            ;;
+        *)
+            echo "Ungültige Auswahl. Kein spezifischer Modus wird installiert."
+            ;;
+    esac
+}
+
+
 setup_drivers() {
     echo "Installiere notwendige Treiber basierend auf Hardware..."
 
