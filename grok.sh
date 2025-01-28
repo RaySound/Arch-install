@@ -1,161 +1,247 @@
 #!/bin/bash
 
-echo "Willkommen zur spezifischen Arch Linux Installation mit COSMIC!"
+# Arch Linux Installationsskript mit Hardware-Erkennung, KI-Assistent, hybrider Unterstützung und Desktop-Auswahl
 
-# System update
-sudo pacman -Syu
-sudo pacman -S base linux linux-firmware dhcpcd
+# --- Funktionen ---
+setup_essentials() {
+    echo "Installiere essenzielle Pakete..."
+    pacstrap /mnt base linux linux-firmware
+}
 
-# Netzwerk einrichten (LAN-Kabel)
-systemctl enable --now dhcpcd
+generate_fstab() {
+    genfstab -U /mnt >> /mnt/etc/fstab
+}
 
-# Benutzer erstellen
-read -p "Gib deinen Benutzernamen ein: " username
-useradd -m -g users -G wheel,audio,video,storage,optical,network,power -s /bin/bash $username
-passwd $username
+setup_timezone() {
+    echo "Setze Zeitzone..."
+    arch-chroot /mnt ln -sf /usr/share/zoneinfo/Europe/Berlin /etc/localtime
+    arch-chroot /mnt hwclock --systohc
+}
 
-# Berechtigungen für sudo anpassen
-echo "$username ALL=(ALL) ALL" >> /etc/sudoers.d/$username
+setup_locale() {
+    echo "Konfiguriere Locale..."
+    echo "LANG=de_DE.UTF-8" > /mnt/etc/locale.conf
+    echo "KEYMAP=de-latin1" > /mnt/etc/vconsole.conf
+    arch-chroot /mnt sed -i 's/#\(de_DE\.UTF-8\)/\1/' /etc/locale.gen
+    arch-chroot /mnt locale-gen
+}
 
-# Zeitzone einstellen
-read -p "Gib deine Zeitzone ein (z.B. Europe/Berlin): " timezone
-ln -sf /usr/share/zoneinfo/$timezone /etc/localtime
-hwclock --systohc
+setup_network() {
+    echo "Installiere Netzwerkdienste..."
+    pacstrap /mnt networkmanager
+    arch-chroot /mnt systemctl enable NetworkManager
+}
 
-# Lokale Einstellungen auf Deutsch
-echo "de_DE.UTF-8 UTF-8" > /etc/locale.gen
-locale-gen
-echo "LANG=de_DE.UTF-8" > /etc/locale.conf
+setup_bootloader() {
+    echo "Installiere Bootloader..."
+    pacstrap /mnt grub
+    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+}
 
-# Tastaturlayout auf de-latin1 setzen
-echo "KEYMAP=de-latin1" > /etc/vconsole.conf
+setup_drivers() {
+    echo "Installiere notwendige Treiber basierend auf Hardware..."
 
-# Hostname setzen
-read -p "Gib deinen Hostnamen ein: " hostname
-echo $hostname > /etc/hostname
+    echo "Wähle deinen CPU-Hersteller:"
+    echo "1) AMD"
+    echo "2) Intel"
+    echo "3) VM (Virtual Machine)"
+    echo "4) Keine Ahnung (installiere alle CPU-Treiber)"
+    read -p "Deine Wahl: " cpu_choice
 
-# Kernelparameter anpassen
-echo "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet pcie_aspm=force\"" >> /etc/default/grub
+    case $cpu_choice in
+        1)
+            pacstrap /mnt amd-ucode
+            ;;
+        2)
+            pacstrap /mnt intel-ucode
+            ;;
+        3|4)
+            pacstrap /mnt amd-ucode intel-ucode
+            ;;
+        *)
+            echo "Ungültige Auswahl. Abbruch."
+            exit 1
+            ;;
+    esac
 
-# Automatische Partitionierung und Formatierung (ext4)
-echo "Automatische Partitionierung wird durchgeführt. Das Root-FS wird mit ext4 formatiert."
-cfdisk /dev/sda
-read -p "Drücke Enter, nachdem du die Partition erstellt und beendet hast: " wait_for_partition
-read -p "Gib die Partition für das Root-Filesystem an (z.B. /dev/sda1): " root_partition
-mkfs.ext4 $root_partition
-mount $root_partition /mnt
+    echo "Wähle deine GPU:"
+    echo "1) AMD"
+    echo "2) Nvidia"
+    echo "3) Intel"
+    echo "4) VM (Virtual Machine)"
+    echo "5) Keine Ahnung (installiere alle GPU-Treiber)"
+    read -p "Deine Wahl: " gpu_choice
 
-# Festplattenverschlüsselung
-read -p "Möchtest du deine Festplatte verschlüsseln? (ja/nein): " encrypt_choice
-if [ "$encrypt_choice" = "ja" ]; then
-    echo "HINWEIS: Es wird empfohlen, die Festplatte zu verschlüsseln, besonders bei Laptops, um den Schutz Ihrer Daten zu gewährleisten. LUKS (Linux Unified Key Setup) ist eine häufig verwendete Methode für die Festplattenverschlüsselung in Arch Linux."
-    cryptsetup luksFormat $root_partition
-    cryptsetup open $root_partition cryptroot
-    mkfs.ext4 /dev/mapper/cryptroot
-    mount /dev/mapper/cryptroot /mnt
-    echo "cryptdevice=$root_partition:cryptroot root=/dev/mapper/cryptroot" >> /etc/default/grub
-fi
+    case $gpu_choice in
+        1)
+            pacstrap /mnt mesa vulkan-radeon
+            ;;
+        2)
+            pacstrap /mnt nvidia nvidia-utils
+            ;;
+        3)
+            pacstrap /mnt mesa vulkan-intel
+            ;;
+        4|5)
+            pacstrap /mnt mesa vulkan-radeon vulkan-intel nvidia nvidia-utils
+            ;;
+        *)
+            echo "Ungültige Auswahl. Abbruch."
+            exit 1
+            ;;
+    esac
+}
 
-# Bootloader GRUB installieren
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
+configure_local_ai() {
+    echo "Möchtest du eine lokale KI (GPT4All) installieren? (y/n): "
+    read -p "Deine Wahl: " install_ai
+    if [[ "$install_ai" == "y" ]]; then
+        echo "Richte GPT4All ein..."
+        arch-chroot /mnt pacman -S --noconfirm python python-pip
+        arch-chroot /mnt pip install torch transformers langchain
+        arch-chroot /mnt mkdir -p /opt/local-ai
+        arch-chroot /mnt wget -O /opt/local-ai/gpt4all.bin "https://gpt4all.io/models/gpt4all-lora-quantized.bin"
 
-# Installiere Grafiksystem und gdm für COSMIC
-sudo pacman -S xorg xorg-xinit gdm
+        cat <<EOF | arch-chroot /mnt tee /etc/systemd/system/local-ai.service
+[Unit]
+Description=Lokale KI mit GPT4All
+After=network.target
 
-# Wayland und benötigte Pakete
-sudo pacman -S wayland libxkbcommon libinput mesa
+[Service]
+ExecStart=/usr/bin/python3 /opt/local-ai/gpt4all_server.py
+Restart=always
+User=root
 
-# Installiere yay für AUR-Pakete
-sudo pacman -S --needed git base-devel
-git clone https://aur.archlinux.org/yay.git
-cd yay
-makepkg -si
+[Install]
+WantedBy=multi-user.target
+EOF
 
-# Installiere COSMIC (ACHTUNG: Alpha-Version)
-yay -S cosmic-session-git
+        arch-chroot /mnt systemctl enable local-ai.service
 
-# Aktiviere gdm und stelle sicher, dass COSMIC als Standard festgelegt ist
-systemctl enable gdm
-
-# Audio-Treiber (Intel HD Audio)
-sudo pacman -S alsa-utils
-
-# Audio-Optionen
-read -p "Welches Audio-System möchtest du verwenden? (PulseAudio/Pipewire): " audio_system
-case "$audio_system" in
-    "PulseAudio")
-        sudo pacman -S pulseaudio pulseaudio-alsa
-        ;;
-    *)
-        echo "Pipewire wird als Standard verwendet."
-        sudo pacman -S pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber
-        systemctl --user enable pipewire-pulse.service
-        systemctl --user enable pipewire.service
-        systemctl --user enable wireplumber.service
-        ;;
-esac
-
-# Intel-Mikrocode für den neuesten Kernel
-sudo pacman -S intel-ucode
-
-# Zusätzliche Software
-read -p "Installiere zusätzliche Software? (ja/nein): " install_software
-if [ "$install_software" = "ja" ]; then
-    read -p "Welche Softwarepakete möchtest du installieren? (Komma getrennt, z.B. nano,firefox-de): " software_list
-    IFS=',' read -ra ADDR <<< "$software_list"
-    for i in "${ADDR[@]}"; do
-        sudo pacman -S $i
-    done
-    read -p "Möchtest du nano als Standard-Editor setzen? (ja/nein): " set_nano
-    if [ "$set_nano" = "ja" ]; then
-        echo "export EDITOR=nano" >> /etc/profile
-        echo "export VISUAL=nano" >> /etc/profile
-        echo "export EDITOR=nano" >> /home/$username/.bashrc
-        echo "export VISUAL=nano" >> /home/$username/.bashrc
+        echo "Möchtest du einen OpenAI-API-Schlüssel hinzufügen? (y/n): "
+        read -p "Deine Wahl: " add_api
+        if [[ "$add_api" == "y" ]]; then
+            read -sp "Gib deinen OpenAI-API-Schlüssel ein: " api_key
+            arch-chroot /mnt mkdir -p /etc/local-ai
+            echo "{\"mode\": \"hybrid\", \"api_key\": \"$api_key\"}" | arch-chroot /mnt tee /etc/local-ai/config.json
+            echo "Hybride KI-Unterstützung aktiviert."
+        else
+            echo "Nur lokale KI wird verwendet."
+        fi
+    else
+        echo "KI-Installation übersprungen."
     fi
-else
-    echo "Keine zusätzliche Software wird installiert."
-fi
+}
 
-# Netzwerk
-read -p "Möchtest du eine statische IP-Konfiguration einrichten? (ja/nein): " static_ip
-if [ "$static_ip" = "ja" ]; then
-    echo "Bitte konfiguriere die statische IP manuell in /etc/netctl/examples/ethernet-static."
-    sudo pacman -S netctl
-else
-    echo "DHCP wird für die Netzwerkkonfiguration verwendet."
-fi
+setup_desktop() {
+    echo "Wähle eine Desktop-Umgebung:"
+    echo "1) GNOME"
+    echo "2) KDE Plasma"
+    echo "3) XFCE"
+    echo "4) Cinnamon"
+    echo "5) MATE"
+    echo "6) LXQt"
+    echo "7) Deepin"
+    echo "8) Budgie"
+    echo "9) Pantheon (Elementary OS)"
+    echo "10) Enlightenment"
+    echo "0) Keine (nur CLI)"
+    read -p "Deine Wahl: " desktop_choice
 
-# Firewall
-read -p "Möchtest du eine Firewall installieren? (ufw/iptables/keine): " firewall_choice
-case "$firewall_choice" in
-    "ufw")
-        sudo pacman -S ufw
-        systemctl enable ufw
-        ;;
-    "iptables")
-        sudo pacman -S iptables
-        ;;
-    *)
-        echo "Keine Firewall wird installiert."
-        ;;
-esac
+    case $desktop_choice in
+        1)
+            pacstrap /mnt gnome gnome-extra gdm
+            arch-chroot /mnt systemctl enable gdm
+            ;;
+        2)
+            pacstrap /mnt plasma kde-applications sddm
+            arch-chroot /mnt systemctl enable sddm
+            ;;
+        3)
+            pacstrap /mnt xfce4 xfce4-goodies lightdm lightdm-gtk-greeter
+            arch-chroot /mnt systemctl enable lightdm
+            ;;
+        4)
+            pacstrap /mnt cinnamon nemo
+            arch-chroot /mnt systemctl enable gdm
+            ;;
+        5)
+            pacstrap /mnt mate mate-extra
+            arch-chroot /mnt systemctl enable lightdm
+            ;;
+        6)
+            pacstrap /mnt lxqt openbox
+            arch-chroot /mnt systemctl enable sddm
+            ;;
+        7)
+            pacstrap /mnt deepin
+            arch-chroot /mnt systemctl enable lightdm
+            ;;
+        8)
+            pacstrap /mnt budgie-desktop
+            arch-chroot /mnt systemctl enable lightdm
+            ;;
+        9)
+            pacstrap /mnt pantheon pantheon-*
+            arch-chroot /mnt systemctl enable lightdm
+            ;;
+        10)
+            pacstrap /mnt enlightenment
+            arch-chroot /mnt systemctl enable enlightenment
+            ;;
+        0)
+            echo "Keine Desktop-Umgebung wird installiert."
+            ;;
+        *)
+            echo "Ungültige Auswahl. Kein Desktop wird installiert."
+            ;;
+    esac
+}
 
-# Blacklisting
-echo "Blacklisting aller unnötigen Module:"
-echo "blacklist *" > /etc/modprobe.d/blacklist-all.conf
+setup_encryption() {
+    echo "Möchtest du die Festplatte verschlüsseln? (y/n): "
+    read -p "Deine Wahl: " encrypt_choice
+    if [[ "$encrypt_choice" == "y" ]]; then
+        echo "Verschlüssele die Festplatte..."
+        cryptsetup -y -v luksFormat ${disk}1
+        cryptsetup open ${disk}1 my_encrypted_drive
+        mkfs.ext4 /dev/mapper/my_encrypted_drive
+        mount /dev/mapper/my_encrypted_drive /mnt
+    else
+        echo "Keine Verschlüsselung."
+        mkfs.ext4 ${disk}1
+        mount ${disk}1 /mnt
+    fi
+}
 
-# Whitelist für notwendige Laptop-Treiber
-echo "Whitelist für notwendige Laptop-Treiber:"
-echo "blacklist *" | grep -v "i915" | grep -v "snd_hda_intel" | grep -v "ehci_pci" | grep -v "xhci_hcd" | grep -v "ahci" | grep -v "usb_storage" > /etc/modprobe.d/blacklist-needed.conf
+setup_user_profile() {
+    echo "Erstelle Benutzerprofil..."
+    read -p "Gib den gewünschten Benutzernamen ein: " username
+    arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$username"
+    echo "Setze ein Passwort für $username:"
+    arch-chroot /mnt passwd "$username"
+    arch-chroot /mnt echo "$username ALL=(ALL) ALL" >> /etc/sudoers
+}
 
-# Power Management
-read -p "Möchtest du Power Management (tlp) installieren? (ja/nein): " install_tlp
-if [ "$install_tlp" = "ja" ]; then
-    sudo pacman -S tlp
-    systemctl enable tlp
-fi
+# --- Hauptskript ---
+echo "Starte Arch Linux Installation..."
 
-# Abschluss
-echo "Skript ausgeführt! Bitte rebooten, um die Änderungen zu übernehmen und COSMIC zu starten."
+# Partitionierung und Formatierung
+read -p "Auf welcher Festplatte soll Arch installiert werden? (z.B. /dev/sda): " disk
+parted $disk mklabel gpt
+parted $disk mkpart primary ext4 1MiB 100%
+setup_encryption
+
+setup_essentials
+generate_fstab
+setup_timezone
+setup_locale
+setup_network
+setup_bootloader
+setup_drivers
+configure_local_ai
+setup_desktop
+setup_user_profile
+
+echo "Arch Linux Installation abgeschlossen! Du kannst jetzt neustarten."
